@@ -18,29 +18,42 @@ class AlternativeController extends Controller
 
     public function index()
     {
-        // Cari skor tertinggi dan terendah untuk setiap kriteria
+        // Cari skor tertinggi dan terendah untuk setiap kriteria jika ada alternatif
         $maxScores = [];
         $minScores = [];
-        foreach ($this->criteria as $index => $criterion) {
-            $scores = array_column($this->alternatives, 'scores')[$index];
-            $maxScores[$index] = max($scores);
-            $minScores[$index] = min($scores);
-        }
-
-        // Hitung nilai utilitas untuk setiap alternatif
-        foreach ($this->alternatives as &$alternative) {
-            $utility = 0;
-            foreach ($alternative['scores'] as $index => $score) {
-                $weight = $this->criteria[$index]['weight'] ?? 0;
-                // Normalisasi skor
-                $normalizedScore = $score / $maxScores[$index];
-                // Menghitung nilai utilitas menggunakan formula yang diberikan
-                $utility += $normalizedScore * (($maxScores[$index] - $minScores[$index]) / $weight);
+        if (!empty($this->alternatives)) {
+            foreach ($this->criteria as $index => $criterion) {
+                $scores = array_column($this->alternatives, 'scores');
+                $scores = array_column($scores, $index);
+                $maxScores[$index] = max($scores);
+                $minScores[$index] = min($scores);
             }
-            $alternative['utility'] = $utility;
+
+            // Hitung nilai utilitas untuk setiap alternatif
+            foreach ($this->alternatives as &$alternative) {
+                $utility = 0;
+                foreach ($alternative['scores'] as $index => $score) {
+                    $weight = $this->criteria[$index]['weight'] ?? 0;
+                    // Normalisasi skor
+                    $normalizedScore = $score / $maxScores[$index];
+                    // Menghitung nilai utilitas menggunakan formula yang diberikan
+                    $utility += $normalizedScore * (($maxScores[$index] - $minScores[$index]) / $weight);
+                }
+                // Membulatkan nilai utilitas ke 3 angka di belakang koma
+                $alternative['utility'] = round($utility, 3);
+            }
+
+            // Urutkan alternatif berdasarkan nilai utilitas secara menurun dan tambahkan rangking
+            usort($this->alternatives, function ($a, $b) {
+                return $b['utility'] <=> $a['utility'];
+            });
+
+            foreach ($this->alternatives as $index => &$alternative) {
+                $alternative['rank'] = $index + 1;
+            }
         }
 
-        return view('alternatives.index', ['alternatives' => $this->alternatives]);
+        return view('alternatives.index', ['alternatives' => $this->alternatives, 'criteria' => $this->criteria]);
     }
 
     public function create()
@@ -50,17 +63,10 @@ class AlternativeController extends Controller
 
     public function store(Request $request)
     {
-        // Simpan kriteria dan bobot
-        $this->criteria = [];
-        foreach ($request->input('weights') as $index => $weight) {
-            $this->criteria[] = ['weight' => $weight];
-        }
-        session()->put('criteria', $this->criteria);
-
         // Simpan alternatif
         $alternative = [
             'name' => $request->input('name'),
-            'scores' => $request->input('scores')
+            'scores' => array_map('floatval', $request->input('scores'))
         ];
 
         // Tambahkan alternatif baru ke session
